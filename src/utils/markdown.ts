@@ -65,8 +65,13 @@ export function parseMarkdown(content: string): MarkdownElement[] {
 export function parseInlineElements(content: string): InlineElement[] {
   const elements: InlineElement[] = [];
   let remaining = content;
+  let iterations = 0;
+  const maxIterations = 1000; // Safety limit to prevent infinite loops
   
-  while (remaining.length > 0) {
+  while (remaining.length > 0 && iterations < maxIterations) {
+    iterations++;
+    const originalLength = remaining.length;
+    
     // Check for inline code first (highest priority)
     const codeMatch = remaining.match(/^(.*?)(`[^`]+`)(.*)/);
     if (codeMatch) {
@@ -124,12 +129,23 @@ export function parseInlineElements(content: string): InlineElement[] {
       continue;
     }
     
-    // No more markdown found, add remaining as text
+    // Safety check: if remaining string hasn't changed, break to prevent infinite loop
+    if (remaining.length === originalLength) {
+      // No more markdown found, add remaining as text
+      elements.push({
+        type: 'text',
+        content: remaining
+      });
+      break;
+    }
+  }
+  
+  // If we hit the iteration limit, add any remaining content as text
+  if (iterations >= maxIterations && remaining.length > 0) {
     elements.push({
       type: 'text',
       content: remaining
     });
-    break;
   }
   
   return elements;

@@ -44,7 +44,9 @@ export default function TokenMetrics({
     updateDisplay();
     
     const interval = setInterval(updateDisplay, 100);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   }, [isActive, isPaused, startTime, pausedTime]);
 
   // Reset loading message index when becoming active and not paused
@@ -66,7 +68,9 @@ export default function TokenMetrics({
       );
     }, 2000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   }, [isActive, isPaused, loadingMessages.length]);
 
   // Update display when request completes
