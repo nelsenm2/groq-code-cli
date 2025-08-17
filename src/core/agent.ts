@@ -32,6 +32,8 @@ export class Agent {
   private requestCount: number = 0;
   private currentAbortController: AbortController | null = null;
   private isInterrupted: boolean = false;
+  private consecutiveToolCalls: number = 0;
+  private maxConsecutiveToolCalls: number = 20;
 
   private constructor(
     model: string,
@@ -212,8 +214,9 @@ When asked about your identity, you should identify yourself as a coding assista
   }
 
   async chat(userInput: string): Promise<void> {
-    // Reset interrupt flag at the start of a new chat
+    // Reset interrupt flag and consecutive tool calls counter at the start of a new chat
     this.isInterrupted = false;
+    this.consecutiveToolCalls = 0;
     
     // Check API key on first message send
     if (!this.client) {
@@ -242,9 +245,11 @@ When asked about your identity, you should identify yourself as a coding assista
     this.messages.push({ role: 'user', content: userInput });
 
     const maxIterations = 50;
+    const maxResets = 3; // Prevent infinite resets
     let iteration = 0;
+    let resetCount = 0;
 
-    while (true) { // Outer loop for iteration reset
+    while (resetCount < maxResets) { // Outer loop for iteration reset with safety limit
       while (iteration < maxIterations) {
         // Check for interruption before each iteration
         if (this.isInterrupted) {
@@ -324,6 +329,20 @@ When asked about your identity, you should identify yourself as a coding assista
 
           // Handle tool calls if present
           if (message.tool_calls) {
+            // Check for excessive tool chaining
+            this.consecutiveToolCalls++;
+            if (this.consecutiveToolCalls > this.maxConsecutiveToolCalls) {
+              debugLog(`Maximum consecutive tool calls (${this.maxConsecutiveToolCalls}) reached. Breaking chain.`);
+              this.messages.push({
+                role: 'system',
+                content: `Maximum consecutive tool calls reached (${this.maxConsecutiveToolCalls}). Please provide a summary of what has been accomplished and ask the user for their next instruction.`
+              });
+              // Reset counter and continue to get model's summary response
+              this.consecutiveToolCalls = 0;
+              iteration++;
+              continue;
+            }
+            
             // Show thinking text or reasoning if present
             if (message.content || reasoning) {
               if (this.onThinkingText) {
@@ -378,6 +397,9 @@ When asked about your identity, you should identify yourself as a coding assista
           debugLog('Final response - no tool calls detected');
           debugLog('Final content length:', content.length);
           debugLog('Final content preview:', content.substring(0, 200));
+          
+          // Reset consecutive tool calls counter on final response
+          this.consecutiveToolCalls = 0;
           
           if (this.onFinalMessage) {
             debugLog('Calling onFinalMessage callback');
@@ -465,11 +487,25 @@ When asked about your identity, you should identify yourself as a coding assista
         }
         if (shouldContinue) {
           iteration = 0; // Reset iteration counter
+          resetCount++; // Increment reset counter
+          debugLog(`Resetting iterations (reset ${resetCount}/${maxResets})`);
           continue; // Continue the outer loop
         } else {
           return; // Exit both loops
         }
       }
+      
+      // If we exit the inner loop without hitting max iterations, we're done
+      break;
+    }
+    
+    // If we've hit the maximum number of resets, log and exit
+    if (resetCount >= maxResets) {
+      debugLog(`Maximum number of iteration resets (${maxResets}) reached. Terminating chat.`);
+      this.messages.push({
+        role: 'system',
+        content: `Maximum iteration resets reached. The conversation has been terminated to prevent infinite loops.`
+      });
     }
   }
 
