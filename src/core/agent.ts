@@ -33,7 +33,13 @@ export class Agent {
   private currentAbortController: AbortController | null = null;
   private isInterrupted: boolean = false;
   private consecutiveToolCalls: number = 0;
-  private maxConsecutiveToolCalls: number = 20;
+  private maxConsecutiveToolCalls: number = 10;
+  private totalIterationsThisSession: number = 0;
+  private maxTotalIterationsPerSession: number = 100;
+  private errorCount: number = 0;
+  private maxErrorsPerSession: number = 5;
+  private sessionStartTime: number = Date.now();
+  private maxSessionDurationMs: number = 30 * 60 * 1000; // 30 minutes
 
   private constructor(
     model: string,
@@ -120,6 +126,15 @@ COMMAND EXECUTION SAFETY:
   - Examples of SAFE commands: "python test_script.py", "npm test", "ls -la", "git status"
   - If a long-running command is needed to complete the task, provide it to the user at the end of the response, not as a tool call, with a description of what it's for.
 
+LOOP PREVENTION SYSTEM:
+  - Maximum 10 consecutive tool calls before termination
+  - Maximum 100 total iterations per session
+  - Maximum 5 errors per session before termination
+  - Maximum 25 iterations per conversation cycle
+  - Maximum 30 minutes per session before termination
+  - Use /clear to reset all counters and start fresh
+  - These limits are ABSOLUTE and cannot be overridden
+
 IMPORTANT: When creating files, keep them focused and reasonably sized. For large applications:
 1. Start with a simple, minimal version first
 2. Create separate files for different components
@@ -173,6 +188,11 @@ When asked about your identity, you should identify yourself as a coding assista
   public clearHistory(): void {
     // Reset messages to only contain system messages
     this.messages = this.messages.filter(msg => msg.role === 'system');
+    // Reset session counters when clearing history
+    this.totalIterationsThisSession = 0;
+    this.errorCount = 0;
+    this.consecutiveToolCalls = 0;
+    this.sessionStartTime = Date.now();
   }
 
   public setModel(model: string): void {
@@ -191,6 +211,29 @@ When asked about your identity, you should identify yourself as a coding assista
 
   public getCurrentModel(): string {
     return this.model;
+  }
+
+  public getSessionStats(): {
+    totalIterations: number;
+    maxTotalIterations: number;
+    errorCount: number;
+    maxErrors: number;
+    consecutiveToolCalls: number;
+    maxConsecutiveToolCalls: number;
+    sessionDurationMinutes: number;
+    maxSessionDurationMinutes: number;
+  } {
+    const sessionDuration = Date.now() - this.sessionStartTime;
+    return {
+      totalIterations: this.totalIterationsThisSession,
+      maxTotalIterations: this.maxTotalIterationsPerSession,
+      errorCount: this.errorCount,
+      maxErrors: this.maxErrorsPerSession,
+      consecutiveToolCalls: this.consecutiveToolCalls,
+      maxConsecutiveToolCalls: this.maxConsecutiveToolCalls,
+      sessionDurationMinutes: Math.round(sessionDuration / (1000 * 60)),
+      maxSessionDurationMinutes: Math.round(this.maxSessionDurationMs / (1000 * 60)),
+    };
   }
 
   public setSessionAutoApprove(enabled: boolean): void {
@@ -218,6 +261,21 @@ When asked about your identity, you should identify yourself as a coding assista
     this.isInterrupted = false;
     this.consecutiveToolCalls = 0;
     
+    // Check absolute session limits before starting
+    if (this.totalIterationsThisSession >= this.maxTotalIterationsPerSession) {
+      throw new Error(`Maximum total iterations per session (${this.maxTotalIterationsPerSession}) reached. Please use /clear to reset the session.`);
+    }
+    
+    if (this.errorCount >= this.maxErrorsPerSession) {
+      throw new Error(`Maximum errors per session (${this.maxErrorsPerSession}) reached. Please use /clear to reset the session.`);
+    }
+    
+    // Check session duration
+    const sessionDuration = Date.now() - this.sessionStartTime;
+    if (sessionDuration > this.maxSessionDurationMs) {
+      throw new Error(`Maximum session duration (30 minutes) reached. Please use /clear to reset the session.`);
+    }
+    
     // Check API key on first message send
     if (!this.client) {
       debugLog('Initializing Groq client...');
@@ -244,13 +302,34 @@ When asked about your identity, you should identify yourself as a coding assista
     // Add user message
     this.messages.push({ role: 'user', content: userInput });
 
-    const maxIterations = 50;
-    const maxResets = 3; // Prevent infinite resets
+    const maxIterations = 25; // Reduced from 50
+    const maxResets = 2; // Reduced from 3 to prevent infinite resets
     let iteration = 0;
     let resetCount = 0;
 
     while (resetCount < maxResets) { // Outer loop for iteration reset with safety limit
       while (iteration < maxIterations) {
+        // Increment and check total session iterations
+        this.totalIterationsThisSession++;
+        if (this.totalIterationsThisSession > this.maxTotalIterationsPerSession) {
+          debugLog(`Absolute maximum iterations per session (${this.maxTotalIterationsPerSession}) reached. Terminating.`);
+          this.messages.push({
+            role: 'system',
+            content: `Maximum total iterations per session reached (${this.maxTotalIterationsPerSession}). The conversation has been terminated to prevent infinite loops. Use /clear to reset.`
+          });
+          return;
+        }
+        
+        // Check session duration on each iteration
+        const sessionDuration = Date.now() - this.sessionStartTime;
+        if (sessionDuration > this.maxSessionDurationMs) {
+          debugLog(`Maximum session duration (30 minutes) reached. Terminating.`);
+          this.messages.push({
+            role: 'system',
+            content: `Maximum session duration (30 minutes) reached. The conversation has been terminated to prevent runaway sessions. Use /clear to reset.`
+          });
+          return;
+        }
         // Check for interruption before each iteration
         if (this.isInterrupted) {
           debugLog('Chat loop interrupted by user');
@@ -332,15 +411,14 @@ When asked about your identity, you should identify yourself as a coding assista
             // Check for excessive tool chaining
             this.consecutiveToolCalls++;
             if (this.consecutiveToolCalls > this.maxConsecutiveToolCalls) {
-              debugLog(`Maximum consecutive tool calls (${this.maxConsecutiveToolCalls}) reached. Breaking chain.`);
+              debugLog(`Maximum consecutive tool calls (${this.maxConsecutiveToolCalls}) reached. Terminating to prevent loops.`);
               this.messages.push({
                 role: 'system',
-                content: `Maximum consecutive tool calls reached (${this.maxConsecutiveToolCalls}). Please provide a summary of what has been accomplished and ask the user for their next instruction.`
+                content: `Maximum consecutive tool calls reached (${this.maxConsecutiveToolCalls}). The conversation has been terminated to prevent infinite tool loops. Please start a new conversation or use /clear to reset.`
               });
-              // Reset counter and continue to get model's summary response
+              // Reset counter and terminate instead of continuing
               this.consecutiveToolCalls = 0;
-              iteration++;
-              continue;
+              return; // Hard termination instead of continue
             }
             
             // Show thinking text or reasoning if present
@@ -432,6 +510,17 @@ When asked about your identity, you should identify yourself as a coding assista
             return;
           }
           
+          // Increment error count and check limits
+          this.errorCount++;
+          if (this.errorCount >= this.maxErrorsPerSession) {
+            debugLog(`Maximum errors per session (${this.maxErrorsPerSession}) reached. Terminating.`);
+            this.messages.push({
+              role: 'system',
+              content: `Maximum errors per session reached (${this.maxErrorsPerSession}). The conversation has been terminated to prevent error loops. Use /clear to reset.`
+            });
+            return;
+          }
+          
           debugLog('Error occurred during API call:', error);
           debugLog('Error details:', {
             message: error instanceof Error ? error.message : String(error),
@@ -470,7 +559,7 @@ When asked about your identity, you should identify yourself as a coding assista
           // Add error context to conversation for model to see and potentially recover
           this.messages.push({
             role: 'system',
-            content: `Previous API request failed with error: ${errorMessage}. Please try a different approach or ask the user for clarification.`
+            content: `Previous API request failed with error: ${errorMessage} (Error ${this.errorCount}/${this.maxErrorsPerSession}). Please try a different approach or ask the user for clarification.`
           });
           
           // Continue conversation loop to let model attempt recovery
@@ -479,8 +568,19 @@ When asked about your identity, you should identify yourself as a coding assista
         }
       }
 
-      // Hit max iterations, ask user if they want to continue
+      // Hit max iterations, ask user if they want to continue (but enforce absolute limits)
       if (iteration >= maxIterations) {
+        // Check if we're approaching absolute session limits
+        const remainingIterations = this.maxTotalIterationsPerSession - this.totalIterationsThisSession;
+        if (remainingIterations <= 10 || resetCount >= maxResets) {
+          debugLog(`Approaching session limits or max resets reached. Terminating.`);
+          this.messages.push({
+            role: 'system',
+            content: `Maximum iterations reached and approaching session limits. The conversation has been terminated to prevent infinite loops. Use /clear to reset.`
+          });
+          return;
+        }
+        
         let shouldContinue = false;
         if (this.onMaxIterations) {
           shouldContinue = await this.onMaxIterations(maxIterations);
