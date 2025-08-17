@@ -263,8 +263,14 @@ function generateUnifiedDiff(
   
   let i = originalLines.length;
   let j = newLines.length;
+  let iterations = 0;
+  const maxIterations = originalLines.length + newLines.length + 100; // Safety limit
   
-  while (i > 0 || j > 0) {
+  while ((i > 0 || j > 0) && iterations < maxIterations) {
+    iterations++;
+    const prevI = i;
+    const prevJ = j;
+    
     if (i > 0 && j > 0 && originalLines[i - 1] === newLines[j - 1]) {
       operations.unshift({type: 'equal', oldLine: originalLines[i - 1], newLine: newLines[j - 1], oldIndex: i - 1, newIndex: j - 1});
       i--;
@@ -276,6 +282,17 @@ function generateUnifiedDiff(
       operations.unshift({type: 'delete', oldLine: originalLines[i - 1], oldIndex: i - 1});
       i--;
     }
+    
+    // Safety check: ensure we're making progress
+    if (i === prevI && j === prevJ) {
+      console.warn('DiffPreview: Loop not making progress, breaking to prevent infinite loop');
+      break;
+    }
+  }
+  
+  // If we hit the iteration limit, log a warning
+  if (iterations >= maxIterations) {
+    console.warn('DiffPreview: Hit maximum iterations limit, diff may be incomplete');
   }
   
   // Group operations into hunks with context

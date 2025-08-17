@@ -246,11 +246,14 @@ When asked about your identity, you should identify yourself as a coding assista
 
     const maxIterations = 50;
     const maxResets = 3; // Prevent infinite resets
+    const absoluteMaxIterations = maxIterations * (maxResets + 1); // Absolute safety limit
     let iteration = 0;
     let resetCount = 0;
+    let totalIterations = 0;
 
-    while (resetCount < maxResets) { // Outer loop for iteration reset with safety limit
-      while (iteration < maxIterations) {
+    while (resetCount < maxResets && totalIterations < absoluteMaxIterations) { // Outer loop for iteration reset with safety limit
+      while (iteration < maxIterations && totalIterations < absoluteMaxIterations) {
+        totalIterations++;
         // Check for interruption before each iteration
         if (this.isInterrupted) {
           debugLog('Chat loop interrupted by user');
@@ -499,12 +502,18 @@ When asked about your identity, you should identify yourself as a coding assista
       break;
     }
     
-    // If we've hit the maximum number of resets, log and exit
+    // If we've hit the maximum number of resets or absolute max iterations, log and exit
     if (resetCount >= maxResets) {
       debugLog(`Maximum number of iteration resets (${maxResets}) reached. Terminating chat.`);
       this.messages.push({
         role: 'system',
         content: `Maximum iteration resets reached. The conversation has been terminated to prevent infinite loops.`
+      });
+    } else if (totalIterations >= absoluteMaxIterations) {
+      debugLog(`Absolute maximum iterations (${absoluteMaxIterations}) reached. Terminating chat.`);
+      this.messages.push({
+        role: 'system',
+        content: `Absolute maximum iterations reached. The conversation has been terminated to prevent infinite loops.`
       });
     }
   }

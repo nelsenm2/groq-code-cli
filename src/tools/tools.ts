@@ -503,7 +503,14 @@ async function collectFiles(
 ): Promise<string[]> {
   const files: string[] = [];
 
-  async function walkDirectory(dir: string): Promise<void> {
+  async function walkDirectory(dir: string, depth: number = 0): Promise<void> {
+    // Prevent infinite recursion and excessive depth
+    const maxDepth = 20;
+    if (depth > maxDepth) {
+      console.warn(`Maximum directory depth (${maxDepth}) reached, skipping: ${dir}`);
+      return;
+    }
+    
     try {
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
 
@@ -519,7 +526,7 @@ async function collectFiles(
           if (entry.name.startsWith('.') && !entry.name.match(/^\.(config|env)$/)) {
             continue;
           }
-          await walkDirectory(fullPath);
+          await walkDirectory(fullPath, depth + 1);
         } else if (entry.isFile()) {
           // Check file type filters
           if (fileTypes && fileTypes.length > 0) {
