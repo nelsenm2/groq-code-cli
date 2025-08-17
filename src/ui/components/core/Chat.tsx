@@ -103,6 +103,33 @@ export default function Chat({ agent }: ChatProps) {
       
       // Handle slash commands
       if (message.startsWith('/')) {
+        // Special handling for /stats command
+        if (message.toLowerCase().startsWith('/stats')) {
+          const stats = agent.getSessionStats();
+          addMessage({
+            role: 'user',
+            content: message,
+          });
+          addMessage({
+            role: 'system',
+            content: `Session Statistics:
+• Total iterations: ${stats.totalIterations}/${stats.maxTotalIterations}
+• Error count: ${stats.errorCount}/${stats.maxErrors}
+• Consecutive tool calls: ${stats.consecutiveToolCalls}/${stats.maxConsecutiveToolCalls}
+• Session duration: ${stats.sessionDurationMinutes}/${stats.maxSessionDurationMinutes} minutes
+
+Loop Prevention Limits:
+• Max consecutive tool calls: ${stats.maxConsecutiveToolCalls} (hard limit)
+• Max total iterations per session: ${stats.maxTotalIterations} (hard limit)
+• Max errors per session: ${stats.maxErrors} (hard limit)
+• Max iterations per cycle: 25 (hard limit)
+• Max session duration: ${stats.maxSessionDurationMinutes} minutes (hard limit)
+
+Use /clear to reset all counters and start fresh.`,
+          });
+          return;
+        }
+        
         handleSlashCommand(message, {
           addMessage,
           clearHistory,

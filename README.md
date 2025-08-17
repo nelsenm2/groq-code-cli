@@ -33,6 +33,8 @@ Coding CLIs are everywhere. The Groq Code CLI is different. It is a blueprint, a
 
 Groq Code CLI is your chance to make a CLI truly your own. Equipped with all of the features, tools, commands, and UI/UX that’s familiar to your current favorite CLI, we make it simple to add new features you’ve always wanted. By massively cutting down on bloat and code mass without compromising on quality, you can jump into modifying this CLI however you see fit. By leveraging models on Groq, you can iterate even faster (`/models` to see available models). Simply activate the CLI by typing `groq` in your terminal. Use Groq Code CLI in any directory just like you would with any other coding CLI. Use it in this directory to have it build and customize itself!
 
+**Safety First**: The CLI includes comprehensive loop prevention mechanisms with hard limits to ensure it never runs infinitely. See [LOOP_PREVENTION.md](LOOP_PREVENTION.md) for details.
+
 A few customization ideas to get started:
 - New slash commands (e.g. /mcp, /deadcode, /complexity, etc.)
 - Additional tools (e.g. web search, merge conflict resolver, knowledge graph builder, etc.)
@@ -113,6 +115,7 @@ export GROQ_API_KEY=your_api_key_here
 - `/model` - Select your Groq model
 - `/clear` - Clear chat history and context
 - `/reasoning` - Toggle display of reasoning content in messages
+- `/stats` - Show session statistics and loop prevention limits
 
 
 ## Development
